@@ -2,10 +2,13 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <sys/types.h>
+
 
 void prompt();
 void insertPID(char* string);
-void argsCreate(char* input, char* args[]);
+void argsCreate(char* input, char* args[], int* numArgs);
 void changeDir(char* args[]);
 
 
@@ -21,6 +24,7 @@ void prompt()
     memset(userInput, '\0', sizeof(userInput));
     char* args[512]; //max of 512 arguments per line
     memset(args, 0, sizeof(args));
+    int numArgs = -1; //number of arguments 
     
     //prompt for and obtain user input
     printf(": ");
@@ -43,14 +47,22 @@ void prompt()
     insertPID(userInput);
 
     //create argument array from user input
-    argsCreate(userInput, args);
+    argsCreate(userInput, args, &numArgs);
+
+    //debug: print out all arguments in array
+    int j = 0;
+    printf("numArgs: %d\n", numArgs);
+    while(args[j] != NULL)
+    {
+        printf("args[%d] = \"%s\"\n", j, args[j]);
+        j++;
+    }
 
 
     //if user wants to clear screen
     if(strcmp(args[0], "clear") == 0)
     {
-        printf("\033[2J\033[1;1H");
-        //or system("clear");
+        printf("\033[2J\033[1;1H"); //or system("clear");
     }
     //if user wants to exit smallsh
     if(strcmp(args[0], "exit") == 0)
@@ -62,13 +74,54 @@ void prompt()
     {
         changeDir(args);
     }
-    //if user wants to print current directory
-    else if(strcmp(args[0], "pwd") == 0)
+
+    //PARSE FOR REDIRECTION AND BACKGROUND COMMAND (&) HERE?
+
+    //else, fork and execute command
+    else
     {
-        char currDir[2048];
-        memset(currDir, '\0', sizeof(currDir));
-        getcwd(currDir, sizeof(currDir));
-        printf("%s\n", currDir);
+        //fork a child process
+        pid_t spawnPid = -5;
+        spawnPid = fork();
+
+        switch(spawnPid)
+        {
+            //fork failed
+            case -1:
+            {
+                perror("Hull Breach!\n");
+                exit(1);
+            }
+
+            //in child process
+            case 0:
+            {
+                //execute command
+                execvp(args[0], args);
+                perror("execvp() failed!\n");
+                exit(1);
+            }
+
+            //in parent process
+            default:
+            {
+                //wait for child process to finish
+                int childExitMethod;
+                waitpid(spawnPid, &childExitMethod, 0);
+
+                //check exit status
+                if(WIFSIGNALED(childExitMethod) != 0) //non zero if terminated by signal
+                {
+                    int termSignal = WTERMSIG(childExitMethod);
+                    printf("The process was terminated by signal! It's signal was: %d\n", termSignal);
+                }
+                else if(WIFEXITED(childExitMethod) != 0) //non zero of terminated normally
+                {
+                    int exitStatus = WEXITSTATUS(childExitMethod);
+                    printf("The process exited normally! It's exit status was: %d\n", exitStatus);
+                }                
+            }
+        }
     }
 }
 
@@ -84,19 +137,19 @@ void insertPID(char* string){
         return;
     }
 
-    for (int i = 0; i < strlen(string); i ++)
+    for(int i = 0; i < strlen(string); i++)
     {
         //if "$$" is found and not beyond end of string
-        if ( (string[i] == '$')  && (string[i + 1] == '$') && (i + 1 < strlen(string)))
+        if((string[i] == '$') && (string[i + 1] == '$') && (i + 1 < strlen(string)))
         {
             //duplicate string, and replace "$$" with "%d"
-            char * temp = strdup(string);
-            temp[i] = '%';
-            temp[i + 1] = 'd';
+            char* dupe = strdup(string);
+            dupe[i] = '%';
+            dupe[i + 1] = 'd';
 
             //format the pid into the %d, and then copy back into string
-            sprintf(string, temp, getpid());
-            free(temp);
+            sprintf(string, dupe, getpid());
+            free(dupe);
         }
     }
 
@@ -109,30 +162,25 @@ void insertPID(char* string){
     into an array of arguments
     ** Parameters: string input from user, array of arguments to be filled & updated
 **********************************************************************************/
-void argsCreate(char* input, char* args[])
+void argsCreate(char* input, char* args[], int* numArgs)
 {
     char* saveptr;
     char* token;
 
-    // get first token
+    //get first token
     token = strtok_r(input, " ", &saveptr);
 
     int j = 0;
-    // walk through other tokens
-    while (token != NULL)
+    //walk through other tokens
+    while(token != NULL)
     {
         args[j] = token;
         j++;
         token = strtok_r(NULL, " ", &saveptr);
     }
 
-    //debug: print out all arguments in array
-    j = 0;
-    while(args[j] != NULL)
-    {
-        printf("Arg %d: %s\n", j, args[j]);
-        j++;
-    }
+    //update number of arguments
+    *numArgs = j;
 }
 
 /**********************************************************************************
@@ -150,21 +198,21 @@ void changeDir(char* args[])
     //no second argument was provided. navigate to HOME directory
     if(args[1] == NULL)
     {
-        //print current directory
-        memset(currDir, '\0', sizeof(currDir));
-        getcwd(currDir, sizeof(currDir));
-        printf("currDir: \"%s\"\n", currDir);
+        // //print current directory
+        // memset(currDir, '\0', sizeof(currDir));
+        // getcwd(currDir, sizeof(currDir));
+        // printf("currDir: \"%s\"\n", currDir);
 
-        //alert
-        printf("no directory provided. navigating to HOME directory called \"%s\".\n", homeDir);
+        // //alert
+        // printf("no directory provided. navigating to HOME directory called \"%s\".\n", homeDir);
 
         //move to home directory
         chdir(homeDir);
 
-        //print current directory after move
-        memset(currDir, '\0', sizeof(currDir));
-        getcwd(currDir, sizeof(currDir));
-        printf("currDir after move: \"%s\"\n", currDir);
+        // //print current directory after move
+        // memset(currDir, '\0', sizeof(currDir));
+        // getcwd(currDir, sizeof(currDir));
+        // printf("currDir after move: \"%s\"\n", currDir);
         
     }
 
@@ -180,21 +228,24 @@ void changeDir(char* args[])
             it is a relative path.
         */
        
-        //print current directory
-        memset(currDir, '\0', sizeof(currDir));
-        getcwd(currDir, sizeof(currDir));
-        printf("currDir: \"%s\"\n", currDir);
+        // //print current directory
+        // memset(currDir, '\0', sizeof(currDir));
+        // getcwd(currDir, sizeof(currDir));
+        // printf("currDir: \"%s\"\n", currDir);
 
-        //alert
-        printf("navigating to directory \"%s\".\n", args[1]);
+        // //alert
+        // printf("navigating to directory \"%s\".\n", args[1]);
 
-        //move to directory
-        chdir(args[1]);
+        //move to directory, print corresponding error if chdir fails
+        if(chdir(args[1]) == -1) 
+        {
+            perror("chdir");
+        }
 
-        //print current directory after move
-        memset(currDir, '\0', sizeof(currDir));
-        getcwd(currDir, sizeof(currDir));
-        printf("currDir after move: \"%s\"\n", currDir);
+        // //print current directory after move
+        // memset(currDir, '\0', sizeof(currDir));
+        // getcwd(currDir, sizeof(currDir));
+        // printf("currDir after move: \"%s\"\n", currDir);
     }
 }
 
@@ -203,7 +254,6 @@ int main()
     while(1)
     {
         fflush(stdout);
-        fflush(stdin);
         prompt();
     }
 }
