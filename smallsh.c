@@ -6,7 +6,7 @@
 #include <sys/types.h>
 
 
-void prompt();
+void prompt(int* exitStatus);
 void insertPID(char* string);
 void argsCreate(char* input, char* args[], int* numArgs);
 void changeDir(char* args[]);
@@ -16,7 +16,7 @@ void changeDir(char* args[]);
     ** Description: 
     ** Parameters: 
 **********************************************************************************/
-void prompt()
+void prompt(int* exitStatus)
 {
     char* line = NULL; //for user input in getline
     size_t buffer = 0; 
@@ -59,11 +59,6 @@ void prompt()
     }
 
 
-    //if user wants to clear screen
-    if(strcmp(args[0], "clear") == 0)
-    {
-        printf("\033[2J\033[1;1H"); //or system("clear");
-    }
     //if user wants to exit smallsh
     if(strcmp(args[0], "exit") == 0)
     {
@@ -73,6 +68,11 @@ void prompt()
     else if(strcmp(args[0], "cd") == 0)
     {
         changeDir(args);
+    }
+    //status
+    else if(strcmp(args[0], "status") == 0)
+    {
+        printf("exit value %d\n", *exitStatus);
     }
 
     //PARSE FOR REDIRECTION AND BACKGROUND COMMAND (&) HERE?
@@ -98,7 +98,6 @@ void prompt()
             {
                 //execute command
                 execvp(args[0], args);
-                perror("execvp() failed!\n");
                 exit(1);
             }
 
@@ -113,12 +112,12 @@ void prompt()
                 if(WIFSIGNALED(childExitMethod) != 0) //non zero if terminated by signal
                 {
                     int termSignal = WTERMSIG(childExitMethod);
-                    printf("The process was terminated by signal! It's signal was: %d\n", termSignal);
+                    printf("terminated by signal %d\n", termSignal);
                 }
                 else if(WIFEXITED(childExitMethod) != 0) //non zero of terminated normally
                 {
-                    int exitStatus = WEXITSTATUS(childExitMethod);
-                    printf("The process exited normally! It's exit status was: %d\n", exitStatus);
+                    *exitStatus = WEXITSTATUS(childExitMethod);
+                    // printf("The process exited normally! It's exit status was: %d\n", exitStatus);
                 }                
             }
         }
@@ -251,9 +250,10 @@ void changeDir(char* args[])
 
 int main()
 {
+    int exitStatus = 0;
     while(1)
     {
         fflush(stdout);
-        prompt();
+        prompt(&exitStatus);
     }
 }
