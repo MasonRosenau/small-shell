@@ -2,14 +2,24 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <fcntl.h>
 #include <sys/wait.h>
 #include <sys/types.h>
+
+struct redirect
+{
+    int inBool;
+    int outBool;
+    char inFile[128];
+    char outFile[128];
+};
 
 
 void prompt(int* exitStatus);
 void insertPID(char* string);
 void argsCreate(char* input, char* args[], int* numArgs);
 void changeDir(char* args[]);
+struct redirect checkRedirect(char* args[], int numArgs);
 
 
 /**********************************************************************************
@@ -24,10 +34,10 @@ void prompt(int* exitStatus)
     memset(userInput, '\0', sizeof(userInput));
     char* args[512]; //max of 512 arguments per line
     memset(args, 0, sizeof(args));
-    int numArgs = -1; //number of arguments 
+    int numArgs = -1; //number of arguments
     
     //prompt for and obtain user input
-    printf(": ");
+    printf("\n: ");
     getline(&line, &buffer, stdin);
     
     //if a comment or empty line, reprompt
@@ -49,16 +59,6 @@ void prompt(int* exitStatus)
     //create argument array from user input
     argsCreate(userInput, args, &numArgs);
 
-    //debug: print out all arguments in array
-    int j = 0;
-    printf("numArgs: %d\n", numArgs);
-    while(args[j] != NULL)
-    {
-        printf("args[%d] = \"%s\"\n", j, args[j]);
-        j++;
-    }
-
-
     //if user wants to exit smallsh
     if(strcmp(args[0], "exit") == 0)
     {
@@ -74,8 +74,6 @@ void prompt(int* exitStatus)
     {
         printf("exit value %d\n", *exitStatus);
     }
-
-    //PARSE FOR REDIRECTION AND BACKGROUND COMMAND (&) HERE?
 
     //else, fork and execute command
     else
@@ -96,8 +94,58 @@ void prompt(int* exitStatus)
             //in child process
             case 0:
             {
+                //obtain any redirection, store in struct
+                struct redirect redirStatus = checkRedirect(args, numArgs);
+                //test
+                fflush(stdout);
+                // printf("Redirection Status\nInput: %d\nSource: \"%s\"\nOutput: %d\nDestination: \"%s\"\n", redirStatus.inBool, redirStatus.inFile, redirStatus.outBool, redirStatus.outFile);
+
+                //if redirecting input
+                if(redirStatus.inBool)
+                {
+                    //open source file
+                    int sourceFD = open(redirStatus.inFile, O_RDONLY);
+                    if(sourceFD == -1){ //cannot open file
+                        perror("Input File"); 
+                        exit(1); 
+                    }
+                    //debug/test
+                    fflush(stdout);
+                    printf("sourceFD == %d\n", sourceFD); 
+
+                    //redirect stdin to this source file descriptor
+                    int result = dup2(sourceFD, 0);
+                    if(result == -1){ 
+                        perror("source dup2()"); 
+                        exit(2); 
+                    }
+                }
+
+                //if redirecting output
+                if(redirStatus.outBool)
+                {
+                    //open destination file
+                    int destinationFD = open(redirStatus.outFile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                    if (destinationFD == -1) { 
+                        perror("Output File"); 
+                        exit(1); 
+                    }
+                    printf("destinationFD == %d\n", destinationFD); // Written to terminal
+                
+                    //redirect stdout to this destination file
+                    int result = dup2(destinationFD, 1);
+                    if (result == -1) { 
+                        perror("target dup2()"); 
+                        exit(2); 
+                    }
+                }
+            
                 //execute command
-                execvp(args[0], args);
+                if (execvp(args[0], args) == -1) {
+                    //if execvp returns -1, command command was not found
+                    printf("Command not found: %s\n", args[0]);
+                    exit(1);
+                }
                 exit(1);
             }
 
@@ -183,8 +231,9 @@ void argsCreate(char* input, char* args[], int* numArgs)
 }
 
 /**********************************************************************************
-    ** Description: 
-    ** Parameters: 
+    ** Description: changes the current working directory to the directory specified,
+    and if no directory is specified, changes to the HOME directory
+    ** Parameters: arguments array
 **********************************************************************************/
 void changeDir(char* args[])
 {
@@ -246,6 +295,68 @@ void changeDir(char* args[])
         // getcwd(currDir, sizeof(currDir));
         // printf("currDir after move: \"%s\"\n", currDir);
     }
+}
+
+/**********************************************************************************
+    ** Description: 
+    ** Parameters: 
+**********************************************************************************/
+struct redirect checkRedirect(char* args[], int numArgs){
+    //initialize struct to be returned
+    struct redirect redirStatus;
+    redirStatus.inBool = 0, redirStatus.outBool = 0;
+    memset(redirStatus.inFile, '\0', sizeof(redirStatus.inFile));
+    memset(redirStatus.outFile, '\0', sizeof(redirStatus.outFile));
+
+    //loop through args array, looking for redirection
+    for(int i = 0; i < numArgs; i++)
+    {
+        //if input redirection "<"
+        if(strcmp(args[i], "<") == 0)
+        {
+            //trigger inBool and remove symbol as an argument
+            redirStatus.inBool = 1;
+            args[i] = NULL;
+
+            //check if there is a filename after that symbol
+            if(args[i + 1] != NULL)
+            {
+                //copy filename into struct and remove filename as an argument
+                strcpy(redirStatus.inFile, args[i + 1]);
+                args[i + 1] = NULL;
+                i++;
+            }
+            else
+            {
+                fflush(stdout);
+                printf("No filename provided after redirection symbol.\n");
+            }
+        }
+
+        //if output redirection ">"
+        else if(strcmp(args[i], ">") == 0)
+        {
+            //trigger outBool and remove symbol as an argument
+            redirStatus.outBool = 1;
+            args[i] = NULL;
+
+            //check if there is a filename after that symbol
+            if(args[i + 1] != NULL)
+            {
+                //copy filename into struct and remove filename as an argument
+                strcpy(redirStatus.outFile, args[i + 1]);
+                args[i + 1] = NULL;
+                i++;
+            }
+            else
+            {
+                fflush(stdout);
+                printf("No filename provided after re");
+            }
+        }
+    }
+
+    return redirStatus;
 }
 
 int main()
