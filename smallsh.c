@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <sys/wait.h>
 #include <sys/types.h>
+#include <signal.h>
 
 struct redirect
 {
@@ -15,18 +16,19 @@ struct redirect
 };
 
 
-void prompt(int* exitStatus, int* termSignal, pid_t* bgProcesses);
+void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProcesses);
 void insertPID(char* string);
 void argsCreate(char* input, char* args[], int* numArgs);
 void changeDir(char* args[]);
 struct redirect checkRedirect(char* args[], int numArgs);
 int checkBG(char* args[], int numArgs);
+void catchSIGINT(int signum);
 
 /**********************************************************************************
     ** Description: 
     ** Parameters: 
 **********************************************************************************/
-void prompt(int* exitStatus, int* termSignal, pid_t* bgProcesses)
+void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProcesses)
 {
     //check for background processes termination
     //check every element in the bgProcesses array
@@ -43,12 +45,14 @@ void prompt(int* exitStatus, int* termSignal, pid_t* bgProcesses)
             //check exit status
             if(WIFSIGNALED(bgExitMethod) != 0)//non zero if terminated by signal
             {
-                *termSignal = WTERMSIG(bgExitMethod);
+                *statusBool = 1;
+                *signalStatus = WTERMSIG(bgExitMethod);
                 fflush(stdout);
-                printf("background PID %d is done. terminated by signal %d\n", bgProcesses[i], *termSignal);
+                printf("background PID %d is done. terminated by signal %d\n", bgProcesses[i], *signalStatus);
             }
             else if(WIFEXITED(bgExitMethod) != 0)//non zero of terminated normally
             {
+                *statusBool = 0;
                 *exitStatus = WEXITSTATUS(bgExitMethod);
                 fflush(stdout);
                 printf("background PID %d is done. exit value: %d\n", bgProcesses[i], *exitStatus);                
@@ -103,7 +107,14 @@ void prompt(int* exitStatus, int* termSignal, pid_t* bgProcesses)
     else if(strcmp(args[0], "status") == 0)
     {   
         fflush(stdout);
-        printf("exit value %d\n", *exitStatus);
+        if(*statusBool == 0)
+        {
+            printf("exit value %d\n", *exitStatus);
+        }
+        else if(*statusBool == 1)
+        {
+            printf("terminated by signal %d\n", *signalStatus);
+        }
     }
 
     //else, fork and execute command
@@ -134,12 +145,20 @@ void prompt(int* exitStatus, int* termSignal, pid_t* bgProcesses)
             //in child process
             case 0:
             {
+                // printf("In child process. bgBool = %d\n", bgBool);
+                fflush(stdout);
+                //handle SIGINT normally (terminate) in foreground child processes
+                if (bgBool == 0)
+                {
+                    //think I need to DFL
+                    struct sigaction default_action = {0};
+                    default_action.sa_handler = SIG_DFL;
+                    sigaction(SIGINT, &default_action, NULL);
+                }
+
                 //obtain any redirection, store in struct
                 struct redirect redirStatus = checkRedirect(args, numArgs);
                 
-                // fflush(stdout);
-                // printf("Redirection Status\nInput: %d\nSource: \"%s\"\nOutput: %d\nDestination: \"%s\"\n", redirStatus.inBool, redirStatus.inFile, redirStatus.outBool, redirStatus.outFile);
-
                 //if redirecting input
                 if(redirStatus.inBool)
                 {
@@ -261,6 +280,9 @@ void prompt(int* exitStatus, int* termSignal, pid_t* bgProcesses)
                     //don't wait for child to die here
                     return;
                 }
+
+                // fflush(stdout); printf("In parent process, about to check exit method of child\n"); fflush(stdout);
+                
                 //wait for child process to finish
                 int childExitMethod;
                 waitpid(spawnPid, &childExitMethod, 0);
@@ -268,12 +290,14 @@ void prompt(int* exitStatus, int* termSignal, pid_t* bgProcesses)
                 //check exit status
                 if(WIFSIGNALED(childExitMethod) != 0) //non zero if terminated by signal
                 {
-                    *termSignal = WTERMSIG(childExitMethod);
+                    *statusBool = 1;
+                    *signalStatus = WTERMSIG(childExitMethod);
                     fflush(stdout);
-                    // printf("terminated by signal %d\n", *termSignal);
+                    printf("terminated by signal %d\n", *signalStatus);
                 }
                 else if(WIFEXITED(childExitMethod) != 0) //non zero of terminated normally
                 {
+                    *statusBool = 0;
                     *exitStatus = WEXITSTATUS(childExitMethod);
                     fflush(stdout);
                     // printf("exit status %d\n", *exitStatus);
@@ -434,6 +458,10 @@ struct redirect checkRedirect(char* args[], int numArgs){
     return redirStatus;
 }
 
+/**********************************************************************************
+    ** Description: 
+    ** Parameters: 
+**********************************************************************************/
 int checkBG(char* args[], int numArgs){
     //check if & is last argument
     if(args[numArgs - 1] != NULL && strcmp(args[numArgs - 1], "&") == 0)
@@ -450,10 +478,18 @@ int checkBG(char* args[], int numArgs){
 
 int main()
 {
-    int exitStatus = 0;
-    int termSignal = -999;
+    //initialize variables and array
+    int exitStatus = -1; //for holding the exit status of processes
+    int signalStatus = -1; //for holding the termitating signal of processes
+    //for indicating last processes' terminating status
+    int statusBool = -1; //0 for exit status, 1 for signal status
     pid_t bgProcesses[20];
     memset(bgProcesses, -1, sizeof(pid_t) * 20);
+
+    //ignore SIGINT in shell
+    struct sigaction ignore_action = {0};
+    ignore_action.sa_handler = SIG_IGN;
+    sigaction(SIGINT, &ignore_action, NULL);
 
     while(1)
     {
@@ -466,6 +502,6 @@ int main()
         //     }
         // }
         fflush(stdout);
-        prompt(&exitStatus, &termSignal, bgProcesses);
+        prompt(&exitStatus, &signalStatus, &statusBool, bgProcesses);
     }
 }
