@@ -7,6 +7,8 @@
 #include <sys/types.h>
 #include <signal.h>
 
+volatile sig_atomic_t foregroundOnlyBool = 0;
+
 struct redirect
 {
     int inBool;
@@ -15,14 +17,12 @@ struct redirect
     char outFile[128];
 };
 
-
 void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProcesses);
 void insertPID(char* string);
 void argsCreate(char* input, char* args[], int* numArgs);
 void changeDir(char* args[]);
 struct redirect checkRedirect(char* args[], int numArgs);
 int checkBG(char* args[], int numArgs);
-void catchSIGINT(int signum);
 
 /**********************************************************************************
     ** Description: 
@@ -71,7 +71,7 @@ void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProces
     int bgBool = 0; //background process boolean
     
     //prompt for and obtain user input
-    printf("\n: ");
+    printf(": ");
     getline(&line, &buffer, stdin);
     
     //if a comment or empty line, reprompt
@@ -92,6 +92,14 @@ void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProces
 
     //create argument array from user input
     argsCreate(userInput, args, &numArgs);
+
+    //if last element in array is & and foregroundOnlyBool is active
+    if(args[numArgs - 1] != NULL && strcmp(args[numArgs - 1], "&") == 0 && foregroundOnlyBool == 1)
+    {
+        //remove & from args array
+        args[numArgs - 1] = NULL;
+        numArgs--;
+    }
 
     //if user wants to exit smallsh
     if(strcmp(args[0], "exit") == 0)
@@ -145,16 +153,20 @@ void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProces
             //in child process
             case 0:
             {
-                // printf("In child process. bgBool = %d\n", bgBool);
-                fflush(stdout);
+
                 //handle SIGINT normally (terminate) in foreground child processes
                 if (bgBool == 0)
                 {
-                    //think I need to DFL
                     struct sigaction default_action = {0};
                     default_action.sa_handler = SIG_DFL;
+                    default_action.sa_flags = 0;
                     sigaction(SIGINT, &default_action, NULL);
                 }
+                // Ignore SIGTSTP in the child process
+                struct sigaction childIgnore = {0};
+                childIgnore.sa_handler = SIG_IGN;
+                childIgnore.sa_flags = 0;
+                sigaction(SIGTSTP, &childIgnore, NULL);
 
                 //obtain any redirection, store in struct
                 struct redirect redirStatus = checkRedirect(args, numArgs);
@@ -252,7 +264,7 @@ void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProces
                 {
                     //if execvp returns -1, command command was not found
                     fflush(stdout);
-                    printf("Command not found: %s\n", args[0]);
+                    printf("%s: command not found\n", args[0]);
                     exit(1);
                 }
                 exit(1);
@@ -476,6 +488,28 @@ int checkBG(char* args[], int numArgs){
     }
 }
 
+/**********************************************************************************
+    ** Description: 
+    ** Parameters: 
+**********************************************************************************/
+void toggleForeground(int signum)
+{
+    //if foreground mode is off, turn it on
+    if(foregroundOnlyBool == 0)
+    {
+        foregroundOnlyBool = 1;
+        char* message = "\nEntering foreground-only mode (& is now ignored)\n: ";
+        write(STDOUT_FILENO, message, 52);
+    }
+    //if foreground mode is on, turn it off
+    else
+    {
+        foregroundOnlyBool = 0;
+        char* message = "\nExiting foreground-only mode\n: ";
+        write(STDOUT_FILENO, message, 32);
+    }
+}
+
 int main()
 {
     //initialize variables and array
@@ -491,16 +525,15 @@ int main()
     ignore_action.sa_handler = SIG_IGN;
     sigaction(SIGINT, &ignore_action, NULL);
 
+    //custom SIGTSTP handler in shell shell
+    struct sigaction SIGTSTP_action = {0};
+    SIGTSTP_action.sa_handler = toggleForeground;
+    SIGTSTP_action.sa_flags = SA_RESTART;
+    sigaction(SIGTSTP, &SIGTSTP_action, NULL);
+
+
     while(1)
     {
-        // //print bg process id array
-        // for(int i = 0; i < 20; i++)
-        // {
-        //     if(bgProcesses[i] != -1)
-        //     {
-        //         printf("bgProcesses[%d]: %d\n", i, bgProcesses[i]);
-        //     }
-        // }
         fflush(stdout);
         prompt(&exitStatus, &signalStatus, &statusBool, bgProcesses);
     }
