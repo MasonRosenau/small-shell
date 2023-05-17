@@ -7,8 +7,10 @@
 #include <sys/types.h>
 #include <signal.h>
 
+//global "boolean" to keep track of whether & is registered (foreground only mode)
 volatile sig_atomic_t foregroundOnlyBool = 0;
 
+//struct for containing redirection information of each command
 struct redirect
 {
     int inBool;
@@ -17,6 +19,7 @@ struct redirect
     char outFile[128];
 };
 
+//function prototypes
 void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProcesses);
 void insertPID(char* string);
 void argsCreate(char* input, char* args[], int* numArgs);
@@ -25,13 +28,15 @@ struct redirect checkRedirect(char* args[], int numArgs);
 int checkBG(char* args[], int numArgs);
 
 /**********************************************************************************
-    ** Description: 
-    ** Parameters: 
+    ** Description: This is the "main" function of the program as it is called
+    each time the user is prompted. It checks for background processes that have
+    terminated, prompts the user for input, and then forks and executes the user's
+    command if needed.
+    ** Parameters: status booleans and background process ID array
 **********************************************************************************/
 void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProcesses)
 {
     //check for background processes termination
-    //check every element in the bgProcesses array
     for(int i = 0; i < 20; i++)
     {
         //don't call on waitpid on initialized values
@@ -113,13 +118,13 @@ void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProces
     }
     //status
     else if(strcmp(args[0], "status") == 0)
-    {   
+    {
         fflush(stdout);
-        if(*statusBool == 0)
+        if(*statusBool == 0)//previous process terminated normally
         {
             printf("exit value %d\n", *exitStatus);
         }
-        else if(*statusBool == 1)
+        else if(*statusBool == 1)//previous process signaled
         {
             printf("terminated by signal %d\n", *signalStatus);
         }
@@ -132,7 +137,6 @@ void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProces
         int bgBool = checkBG(args, numArgs);
         //background present
         if(bgBool == 1){
-            fflush(stdout);
             //decrement numArgs so we don't check null index in checkRedirect()
             numArgs--;
         }
@@ -162,7 +166,7 @@ void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProces
                     default_action.sa_flags = 0;
                     sigaction(SIGINT, &default_action, NULL);
                 }
-                // Ignore SIGTSTP in the child process
+                //ignore SIGTSTP in the child process
                 struct sigaction childIgnore = {0};
                 childIgnore.sa_handler = SIG_IGN;
                 childIgnore.sa_flags = 0;
@@ -181,9 +185,6 @@ void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProces
                         perror("Input File"); 
                         exit(1); 
                     }
-                    //debug/test
-                    fflush(stdout);
-                    // printf("sourceFD == %d\n", sourceFD); 
 
                     //redirect stdin to this source file descriptor
                     int result = dup2(sourceFD, 0);
@@ -203,10 +204,7 @@ void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProces
                         perror("Input File"); 
                         exit(1); 
                     }
-                    //debug/test
-                    fflush(stdout);
-                    // printf("sourceFD == %d\n", sourceFD); 
-
+  
                     //redirect stdin to this source file descriptor
                     int result = dup2(sourceFD, 0);
                     if(result == -1)
@@ -226,10 +224,7 @@ void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProces
                         perror("Output File"); 
                         exit(1); 
                     }
-                    //debug/test
-                    fflush(stdout);
-                    // printf("destinationFD == %d\n", destinationFD);
-                
+                                   
                     //redirect stdout to this destination file
                     int result = dup2(destinationFD, 1);
                     if(result == -1)
@@ -292,9 +287,7 @@ void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProces
                     //don't wait for child to die here
                     return;
                 }
-
-                // fflush(stdout); printf("In parent process, about to check exit method of child\n"); fflush(stdout);
-                
+             
                 //wait for child process to finish
                 int childExitMethod;
                 waitpid(spawnPid, &childExitMethod, 0);
@@ -324,10 +317,12 @@ void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProces
     ID of the small shell
     ** Parameters: string to insert PID into
 **********************************************************************************/
-void insertPID(char* string){
+void insertPID(char* string)
+{
 
-    //base case if string has no consecutive dollar signs
-    if(strstr(string, "$$") == NULL){
+    //recursive base case if string has no consecutive dollar signs
+    if(strstr(string, "$$") == NULL)
+    {
         return;
     }
 
@@ -352,9 +347,10 @@ void insertPID(char* string){
 }
 
 /**********************************************************************************
-    ** Description: takes the string the user input on the command line, and tokenizes
-    into an array of arguments
-    ** Parameters: string input from user, array of arguments to be filled & updated
+    ** Description: takes the string that the user input on the command line, and
+    tokenizes into an array of arguments delimited by spaces
+    ** Parameters: string input from user, array of arguments to be filled & updated,
+    and number of arguments to be updated
 **********************************************************************************/
 void argsCreate(char* input, char* args[], int* numArgs)
 {
@@ -409,10 +405,13 @@ void changeDir(char* args[])
 }
 
 /**********************************************************************************
-    ** Description: 
-    ** Parameters: 
+    ** Description: takes the array of arguments and checks for redirection symbols.
+    if found, fills a struct with the status of redirection and the filenames and 
+    returns said struct.
+    ** Parameters: argument array and number of arguments
 **********************************************************************************/
-struct redirect checkRedirect(char* args[], int numArgs){
+struct redirect checkRedirect(char* args[], int numArgs)
+{
     //initialize struct to be returned
     struct redirect redirStatus;
     redirStatus.inBool = 0, redirStatus.outBool = 0;
@@ -435,7 +434,7 @@ struct redirect checkRedirect(char* args[], int numArgs){
                 //copy filename into struct and remove filename as an argument
                 strcpy(redirStatus.inFile, args[i + 1]);
                 args[i + 1] = NULL;
-                i++;
+                i++; //to prevent seg fault on next iteration
             }
             else
             {
@@ -457,12 +456,12 @@ struct redirect checkRedirect(char* args[], int numArgs){
                 //copy filename into struct and remove filename as an argument
                 strcpy(redirStatus.outFile, args[i + 1]);
                 args[i + 1] = NULL;
-                i++;
+                i++; //to prevent seg fault on next iteration
             }
             else
             {
                 fflush(stdout);
-                printf("No filename provided after re");
+                printf("No filename provided after redirection symbol");
             }
         }
     }
@@ -471,10 +470,12 @@ struct redirect checkRedirect(char* args[], int numArgs){
 }
 
 /**********************************************************************************
-    ** Description: 
-    ** Parameters: 
+    ** Description: checks if & is the last argument in the array and returns 1 or
+    0 to set a boolean where it was called
+    ** Parameters: argument array and number of args
 **********************************************************************************/
-int checkBG(char* args[], int numArgs){
+int checkBG(char* args[], int numArgs)
+{
     //check if & is last argument
     if(args[numArgs - 1] != NULL && strcmp(args[numArgs - 1], "&") == 0)
     {
@@ -489,8 +490,8 @@ int checkBG(char* args[], int numArgs){
 }
 
 /**********************************************************************************
-    ** Description: 
-    ** Parameters: 
+    ** Description: signal handler to toggle foreground-only mode on and off when
+    SIGTSTP is received
 **********************************************************************************/
 void toggleForeground(int signum)
 {
@@ -510,13 +511,16 @@ void toggleForeground(int signum)
     }
 }
 
+/**********************************************************************************
+    ** Description: main function that has certain certain variables, arrays, and
+    signal handlers initialized
+**********************************************************************************/
 int main()
 {
     //initialize variables and array
     int exitStatus = -1; //for holding the exit status of processes
     int signalStatus = -1; //for holding the termitating signal of processes
-    //for indicating last processes' terminating status
-    int statusBool = -1; //0 for exit status, 1 for signal status
+    int statusBool = -1; //for indicating last processes' terminating status
     pid_t bgProcesses[20];
     memset(bgProcesses, -1, sizeof(pid_t) * 20);
 
@@ -525,13 +529,13 @@ int main()
     ignore_action.sa_handler = SIG_IGN;
     sigaction(SIGINT, &ignore_action, NULL);
 
-    //custom SIGTSTP handler in shell shell
+    //custom SIGTSTP handler in shell
     struct sigaction SIGTSTP_action = {0};
     SIGTSTP_action.sa_handler = toggleForeground;
     SIGTSTP_action.sa_flags = SA_RESTART;
     sigaction(SIGTSTP, &SIGTSTP_action, NULL);
 
-
+    //continuously prompt user
     while(1)
     {
         fflush(stdout);
