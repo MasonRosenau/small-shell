@@ -136,7 +136,8 @@ void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProces
         //check for background symbol at end
         int bgBool = checkBG(args, numArgs);
         //background present
-        if(bgBool == 1){
+        if(bgBool == 1)
+        {
             //decrement numArgs so we don't check null index in checkRedirect()
             numArgs--;
         }
@@ -150,7 +151,8 @@ void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProces
             //fork failed
             case -1:
             {
-                perror("Hull Breach!\n");
+                fflush(stdout);
+                perror("Child Error!\n");
                 exit(1);
             }
 
@@ -243,7 +245,6 @@ void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProces
                         perror("Output File"); 
                         exit(1); 
                     }
-                    // printf("destinationFD == %d\n", destinationFD); // Written to terminal
                 
                     //redirect stdout to this destination file
                     int result = dup2(destinationFD, 1);
@@ -304,8 +305,6 @@ void prompt(int* exitStatus, int* signalStatus, int* statusBool, pid_t* bgProces
                 {
                     *statusBool = 0;
                     *exitStatus = WEXITSTATUS(childExitMethod);
-                    fflush(stdout);
-                    // printf("exit status %d\n", *exitStatus);
                 }                
             }
         }
