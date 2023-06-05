@@ -13,6 +13,6 @@ This program is a small, UNIX-like shell. Below are some of the capabilities.
 1. Compile using `gcc --std=gnu99 smallsh.c -o smallsh` which compiles the code using the GNU99 standard.
 2. Run the program with `./smallsh`.
 
-You can run `testscript.sh` to see the objectives of the program being completed in realstime by making it executable and running it like below, once smallsh is compiled.
+You can run `testscript.sh` to see the objectives of the program being completed in realtime by making it executable and running it like below, once smallsh is compiled.
 - `chmod +x ./testscript.sh`
 - `./testscript.sh`
