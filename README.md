@@ -1,5 +1,5 @@
 <ins>Program Description</ins><br>
-This program is a small, UNIX-like shell, completed for Operating Systems I (CS 344) at Oregon State University. Below are some of the capabilities.
+This program is a small, bash-like shell, completed for Operating Systems I (CS 344) at Oregon State University. Below are some of the capabilities.
 1. Provide a prompt for running commands
 2. Handle blank lines and comments, which are lines beginning with the # character
 3. Provide expansion for the variable $$
